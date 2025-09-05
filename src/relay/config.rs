@@ -59,7 +59,7 @@ impl RelayConfig {
     
     /// Create a testnet4 configuration
     pub fn testnet4(relay_id: u16) -> Self {
-        let bitcoin_port = if relay_id == 1 { 48330 } else { 48430 };
+        let bitcoin_port = if relay_id == 1 { 48330 } else { 48350 };
         let strfry_port = if relay_id == 1 { 7777 } else { 7778 };
         Self::new(bitcoin_port, relay_id, strfry_port)
     }
@@ -134,13 +134,13 @@ mod tests {
         assert_eq!(config1.relay_id, 1);
         
         let config2 = RelayConfig::testnet4(2);
-        assert_eq!(config2.bitcoin_rpc_port, 48430);
+        assert_eq!(config2.bitcoin_rpc_port, 48350);
         assert_eq!(config2.strfry_port, 7778);
         assert_eq!(config2.relay_id, 2);
         
         // Test URL construction
         assert_eq!(config1.bitcoin_rpc_url, "http://127.0.0.1:48330");
-        assert_eq!(config2.bitcoin_rpc_url, "http://127.0.0.1:48430");
+        assert_eq!(config2.bitcoin_rpc_url, "http://127.0.0.1:48350");
     }
 
     #[test]
@@ -210,7 +210,7 @@ mod tests {
         
         // Check all configured values
         assert_eq!(config.relay_id, 2);
-        assert_eq!(config.bitcoin_rpc_port, 48430);
+        assert_eq!(config.bitcoin_rpc_port, 48350);
         assert_eq!(config.bitcoin_rpc_username, "testuser");
         assert_eq!(config.bitcoin_rpc_password, "testpass");
         assert_eq!(config.mempool_poll_interval_secs, 10);
