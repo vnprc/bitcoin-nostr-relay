@@ -70,6 +70,11 @@ impl TransactionValidator {
         }
     }
     
+    /// Get the validation configuration
+    pub fn config(&self) -> &ValidationConfig {
+        &self.config
+    }
+    
     pub async fn validate(&self, tx_hex: &str) -> Result<(), ValidationError> {
         if !self.config.enable_validation {
             return Ok(());
@@ -180,6 +185,12 @@ impl TransactionValidator {
         if let Ok(mut cache) = self.tx_cache.write() {
             cache.put(txid.to_string(), Instant::now());
         }
+    }
+}
+
+impl Clone for TransactionValidator {
+    fn clone(&self) -> Self {
+        Self::new(self.config.clone(), self.bitcoin_rpc_url.strip_prefix("http://127.0.0.1:").and_then(|s| s.parse().ok()).unwrap_or(18332))
     }
 }
 

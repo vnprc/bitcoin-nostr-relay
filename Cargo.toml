@@ -2,10 +2,11 @@
 name = "tx-relay"
 version = "0.1.0"
 edition = "2021"
-
-[[bin]]
-name = "tx-relay-server"
-path = "src/bin/tx-relay-server.rs"
+description = "A library for relaying Bitcoin transactions over the Nostr protocol"
+license = "MIT"
+repository = "https://github.com/vnprc/tx-relay"
+keywords = ["bitcoin", "nostr", "relay", "transaction", "blockchain"]
+categories = ["cryptography::cryptocurrencies", "network-programming"]
 
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
