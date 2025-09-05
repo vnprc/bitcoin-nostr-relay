@@ -77,7 +77,7 @@ fn test_library_integration_builder_pattern() {
         "ws://127.0.0.1:8888".to_string(),
         "99".to_string(),
         "127.0.0.1:7778".parse().unwrap(),
-    )
+    ).unwrap()
         .with_auth("custom_user".to_string(), "custom_password".to_string())
         .with_mempool_poll_interval_secs(10);
     
@@ -102,7 +102,7 @@ async fn test_library_integration_error_handling() {
     // Test broadcast without Nostr client
     let broadcast_result = relay.broadcast_transaction("deadbeef", "block_hash").await;
     assert!(broadcast_result.is_err());
-    assert!(broadcast_result.unwrap_err().to_string().contains("Nostr client not connected"));
+    assert!(broadcast_result.unwrap_err().to_string().contains("Nostr relay disconnected"));
     
     // Test validation errors
     let validation_result = relay.validate_transaction("").await;

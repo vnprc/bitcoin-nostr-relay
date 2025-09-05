@@ -1,4 +1,5 @@
 use crate::validation::ValidationConfig;
+use crate::error::ConfigError;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -42,26 +43,47 @@ pub struct RelayConfig {
 
 impl RelayConfig {
     /// Create a new RelayConfig with the provided URLs and addresses
+    /// 
+    /// This validates URLs and socket addresses at construction time
     pub fn new(
-        bitcoin_rpc_url: String,
-        strfry_url: String,
-        relay_id: String,
+        bitcoin_rpc_url: impl Into<String>,
+        strfry_url: impl Into<String>,
+        relay_id: impl Into<String>,
         websocket_listen_addr: SocketAddr,
-    ) -> Self {
-        Self {
-            bitcoin_rpc_url,
+    ) -> Result<Self, ConfigError> {
+        let bitcoin_url = bitcoin_rpc_url.into();
+        let nostr_url = strfry_url.into();
+        let relay_id_str = relay_id.into();
+        
+        // Validate Bitcoin RPC URL
+        url::Url::parse(&bitcoin_url)
+            .map_err(|_| ConfigError::invalid_url(&bitcoin_url))?;
+        
+        // Validate Nostr relay URL  
+        url::Url::parse(&nostr_url)
+            .map_err(|_| ConfigError::invalid_url(&nostr_url))?;
+        
+        // Validate relay ID is not empty
+        if relay_id_str.trim().is_empty() {
+            return Err(ConfigError::InvalidParameter { 
+                param: "relay_id cannot be empty".to_string() 
+            });
+        }
+        
+        Ok(Self {
+            bitcoin_rpc_url: bitcoin_url,
             bitcoin_rpc_auth: RpcAuth {
                 username: "user".to_string(),
                 password: "password".to_string(),
             },
-            strfry_url,
-            relay_id,
+            strfry_url: nostr_url,
+            relay_id: relay_id_str,
             websocket_listen_addr,
             validation_config: ValidationConfig::default(),
             mempool_poll_interval: Duration::from_secs(2),
             max_client_connections: 1000,
             websocket_buffer_size: 100,
-        }
+        })
     }
     
     
@@ -116,7 +138,7 @@ mod tests {
             "ws://127.0.0.1:7777".to_string(),
             "test-relay".to_string(),
             "127.0.0.1:7779".parse().unwrap(),
-        );
+        ).unwrap();
         
         assert_eq!(config.bitcoin_rpc_url, "http://127.0.0.1:18332");
         assert_eq!(config.bitcoin_rpc_auth.username, "user");
@@ -251,6 +273,27 @@ mod tests {
         assert!(debug_str.contains("relay_id: \"1\""));
         assert!(debug_str.contains("18332"));
         assert!(debug_str.contains("7777"));
+    }
+
+    #[test]
+    fn test_relay_config_validation() {
+        // Test invalid URL validation
+        let invalid_config = RelayConfig::new(
+            "not-a-valid-url",
+            "ws://127.0.0.1:7777",
+            "test",
+            "127.0.0.1:7779".parse().unwrap(),
+        );
+        assert!(invalid_config.is_err());
+        
+        // Test empty relay ID validation
+        let empty_id_config = RelayConfig::new(
+            "http://127.0.0.1:18332",
+            "ws://127.0.0.1:7777",
+            "",
+            "127.0.0.1:7779".parse().unwrap(),
+        );
+        assert!(empty_id_config.is_err());
     }
 
     #[test]

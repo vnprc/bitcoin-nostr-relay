@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result};
+use crate::error::BitcoinRpcError;
+use crate::Result;
 use bitcoin::{Block, BlockHash};
 use reqwest::Client;
 use serde_json::{json, Value};
@@ -42,22 +43,22 @@ impl BitcoinRpcClient {
         
         if let Some(error) = response.get("error") {
             if !error.is_null() {
-                return Err(anyhow!("RPC error: {}", error));
+                return Err(BitcoinRpcError::request_failed(format!("RPC error: {}", error)).into());
             }
         }
         
         response
             .get("result")
             .cloned()
-            .ok_or_else(|| anyhow!("No result in RPC response"))
+            .ok_or_else(|| BitcoinRpcError::InvalidResponse.into())
     }
     
     pub async fn get_best_block_hash(&self) -> Result<BlockHash> {
         let result = self.rpc_call("getbestblockhash", &json!([])).await?;
         let hash_str = result
             .as_str()
-            .ok_or_else(|| anyhow!("Invalid block hash format"))?;
-        BlockHash::from_str(hash_str).map_err(|e| anyhow!("Failed to parse block hash: {}", e))
+            .ok_or_else(|| BitcoinRpcError::InvalidResponse)?;
+        BlockHash::from_str(hash_str).map_err(|e| BitcoinRpcError::request_failed(format!("Failed to parse block hash: {}", e)).into())
     }
     
     pub async fn get_block(&self, block_hash: &BlockHash) -> Result<Block> {
@@ -66,10 +67,10 @@ impl BitcoinRpcClient {
             .await?;
         let block_hex = result
             .as_str()
-            .ok_or_else(|| anyhow!("Invalid block hex format"))?;
+            .ok_or_else(|| BitcoinRpcError::InvalidResponse)?;
         let block_bytes = hex::decode(block_hex)?;
         bitcoin::consensus::deserialize(&block_bytes)
-            .map_err(|e| anyhow!("Failed to deserialize block: {}", e))
+            .map_err(|e| BitcoinRpcError::request_failed(format!("Failed to deserialize block: {}", e)).into())
     }
 }
 

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use crate::Result;
 use futures_util::{SinkExt, StreamExt};
 use nostr::{Event, EventBuilder, Keys, Kind, Tag};
 use std::sync::Arc;

@@ -1,7 +1,6 @@
 use crate::{BitcoinRpcClient, NostrClient, TransactionValidator, ValidationError};
 use super::config::RelayConfig;
-
-use anyhow::Result;
+use crate::Result;
 use bitcoin::{consensus::deserialize, Transaction};
 use futures_util::{SinkExt, StreamExt};
 use nostr::{Event, EventBuilder, Keys, Kind, Tag};
@@ -189,7 +188,7 @@ impl RelayServer {
             Ok(()) => {
                 // Validation passed, continue to submission
             }
-            Err(ValidationError::RecentlyProcessed(_)) => {
+            Err(ValidationError::RecentlyProcessed { txid: _ }) => {
                 self.send_tx_response(client_id, false, "Transaction recently processed", "").await?;
                 return Ok(());
             }
@@ -253,13 +252,13 @@ impl RelayServer {
         
         if let Some(error) = response.get("error") {
             if !error.is_null() {
-                return Err(anyhow::anyhow!("Bitcoin RPC error: {}", error));
+                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
             }
         }
         
         let txid = response["result"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No txid in response"))?
+            .ok_or_else(|| crate::BitcoinRpcError::InvalidResponse)?
             .to_string();
         
         Ok(txid)
@@ -366,7 +365,7 @@ impl RelayServer {
         
         if let Some(error) = response.get("error") {
             if !error.is_null() {
-                return Err(anyhow::anyhow!("Bitcoin RPC error: {}", error));
+                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
             }
         }
         
@@ -401,7 +400,7 @@ impl RelayServer {
         
         if let Some(error) = response.get("error") {
             if !error.is_null() {
-                return Err(anyhow::anyhow!("Bitcoin RPC error: {}", error));
+                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
             }
         }
         
@@ -448,7 +447,7 @@ impl RelayServer {
     /// Send an event to the Strfry relay
     async fn send_to_strfry(&self, event: &Event) -> Result<()> {
         if let Err(_) = self.strfry_sender.send(event.clone()) {
-            return Err(anyhow::anyhow!("Failed to send event to strfry channel"));
+            return Err(crate::NostrError::SendFailed.into());
         }
         Ok(())
     }
@@ -577,7 +576,7 @@ impl RelayServer {
                 
                 match self.validator.validate(tx_hex).await {
                     Ok(()) => {}
-                    Err(ValidationError::RecentlyProcessed(_)) => {
+                    Err(ValidationError::RecentlyProcessed { txid: _ }) => {
                         return Ok(());
                     }
                     Err(e) => {
@@ -591,8 +590,9 @@ impl RelayServer {
                         info!("🌐 Relay-{}: Received transaction {} via Nostr", self.config.relay_id, txid);
                     }
                     Err(e) => {
-                        if !e.to_string().contains("already in mempool") && !e.to_string().contains("already exists") {
-                            warn!("Relay-{}: Failed to submit remote transaction {} to local Bitcoin node: {}", self.config.relay_id, txid, e);
+                        let error_msg = e.to_string();
+                        if !error_msg.contains("already in mempool") && !error_msg.contains("already exists") {
+                            warn!("Relay-{}: Failed to submit remote transaction {} to local Bitcoin node: {}", self.config.relay_id, txid, error_msg);
                         }
                     }
                 }

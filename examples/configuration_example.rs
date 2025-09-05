@@ -1,7 +1,7 @@
-use bitcoin_nostr_relay::{BitcoinNostrRelay, RelayConfig, Network, network_config};
+use bitcoin_nostr_relay::{BitcoinNostrRelay, RelayConfig, Network, network_config, Result};
 use std::net::SocketAddr;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     println!("Bitcoin-Nostr Relay Configuration Examples");
     println!("==========================================\n");
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "wss://my-nostr-relay.com".to_string(),       // Nostr relay URL
         "production-relay-1".to_string(),             // Custom relay ID
         "0.0.0.0:9001".parse::<SocketAddr>()?,       // WebSocket listen address
-    )
+    )?
     .with_auth("bitcoind_user".to_string(), "secure_password".to_string())
     .with_mempool_poll_interval_secs(2);
 

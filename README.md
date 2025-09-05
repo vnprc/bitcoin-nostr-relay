@@ -36,26 +36,31 @@ use bitcoin_nostr_relay::*;
 use std::net::SocketAddr;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> { // Using library Result type
     // Method-based convenience (recommended for common patterns)
     let config = RelayConfig::for_network(Network::Regtest, 1)
         .with_auth("user".to_string(), "password".to_string())
         .with_mempool_poll_interval_secs(5);
     
-    // Explicit configuration (recommended for custom deployments)
+    // Explicit configuration with validation (recommended for custom deployments)
     let config = RelayConfig::new(
-        "http://127.0.0.1:18332".to_string(),    // Bitcoin RPC URL
-        "ws://127.0.0.1:7777".to_string(),       // Nostr relay URL  
-        "my-relay".to_string(),                  // Relay ID
-        "127.0.0.1:7779".parse::<SocketAddr>()?, // WebSocket listen address
-    ).with_auth("user".to_string(), "password".to_string());
+        "http://127.0.0.1:18332",    // Bitcoin RPC URL
+        "ws://127.0.0.1:7777",       // Nostr relay URL  
+        "my-relay",                  // Relay ID
+        "127.0.0.1:7779".parse()?,   // WebSocket listen address
+    )?  // Validates URLs at construction time
+    .with_auth("user".to_string(), "password".to_string());
     
     // Create the relay instance
     let mut relay = BitcoinNostrRelay::new(config)?;
     
-    // Validate a transaction
+    // Validate a transaction with structured error handling
     let tx_hex = "deadbeef..."; // Your transaction hex
-    relay.validate_transaction(tx_hex).await?;
+    match relay.validate_transaction(tx_hex).await {
+        Ok(()) => println!("Transaction is valid"),
+        Err(ValidationError::InvalidHex) => println!("Invalid hex format"),
+        Err(e) => println!("Validation failed: {}", e),
+    }
     
     // Connect to Nostr relay and start broadcasting
     // let (ws_stream, _) = tokio_tungstenite::connect_async("ws://localhost:7777").await?;
@@ -83,13 +88,14 @@ let config = RelayConfig::for_network(Network::Regtest, 1)
 let config = network_config(Network::Testnet4, 1)
     .with_auth("user".to_string(), "pass".to_string());
 
-// Explicit configuration (full control)
+// Explicit configuration with validation (full control)
 let config = RelayConfig::new(
-    "http://your-bitcoin-node:8332".to_string(),
-    "wss://your-nostr-relay.com".to_string(), 
-    "production-relay-1".to_string(),
-    "0.0.0.0:9001".parse::<SocketAddr>().unwrap(),
-).with_auth("bitcoin_user".to_string(), "secure_password".to_string());
+    "http://your-bitcoin-node:8332",
+    "wss://your-nostr-relay.com", 
+    "production-relay-1",
+    "0.0.0.0:9001".parse()?,
+)?  // Validates URLs and parameters at construction time
+.with_auth("bitcoin_user".to_string(), "secure_password".to_string());
 
 // Custom validation settings
 let mut validation_config = ValidationConfig::default();
@@ -183,26 +189,62 @@ The library implements a **deployment-agnostic** Bitcoin-over-Nostr relay networ
 ✅ **Flexible Relay IDs**: String-based IDs support any naming scheme  
 ✅ **Multiple API Styles**: Method-based, functional, and explicit patterns  
 ✅ **Mature Rust Patterns**: Follows conventions from tokio, reqwest, clap  
+✅ **Structured Error Handling**: Custom error types with detailed context  
+✅ **Fail-Fast Validation**: URLs and parameters validated at construction time  
 ✅ **Clean API**: Simple, focused API without legacy complexity  
-✅ **Comprehensive Testing**: 52 tests covering all configuration scenarios
+✅ **Comprehensive Testing**: 53 tests covering all configuration scenarios
 
 ## Error Handling
 
-The library provides comprehensive error types:
+The library provides comprehensive, structured error types for better debugging and error handling:
 
 ```rust
-use bitcoin_nostr_relay::ValidationError;
+use bitcoin_nostr_relay::{Result, RelayError, ValidationError, ConfigError};
 
+// Library-wide Result type
+fn create_relay() -> Result<BitcoinNostrRelay> {
+    let config = RelayConfig::new(
+        "http://127.0.0.1:18332",
+        "ws://127.0.0.1:7777", 
+        "my-relay",
+        "127.0.0.1:7779".parse()?,
+    )?; // Validates URLs at construction time
+    
+    BitcoinNostrRelay::new(config)
+}
+
+// Structured error handling with detailed context
 match relay.validate_transaction(tx_hex).await {
     Ok(()) => println!("Transaction valid"),
     Err(ValidationError::EmptyTransaction) => println!("Empty transaction"),
     Err(ValidationError::InvalidHex) => println!("Invalid hex format"),
-    Err(ValidationError::InvalidSize(size)) => println!("Invalid size: {} bytes", size),
-    Err(ValidationError::RecentlyProcessed(txid)) => println!("Recently processed: {}", txid),
-    Err(ValidationError::BitcoinCoreRejection(reason)) => println!("Rejected: {}", reason),
+    Err(ValidationError::InvalidSize { size }) => println!("Invalid size: {} bytes", size),
+    Err(ValidationError::RecentlyProcessed { txid }) => println!("Recently processed: {}", txid),
+    Err(ValidationError::BitcoinCoreRejection { reason }) => println!("Rejected: {}", reason),
     Err(e) => println!("Other error: {}", e),
 }
+
+// Configuration validation errors
+match RelayConfig::new("invalid-url", "ws://localhost:7777", "relay", addr) {
+    Ok(config) => println!("Configuration valid"),
+    Err(ConfigError::InvalidUrl { url }) => println!("Invalid URL: {}", url),
+    Err(ConfigError::InvalidParameter { param }) => println!("Invalid parameter: {}", param),
+    Err(e) => println!("Configuration error: {}", e),
+}
 ```
+
+### Error Types
+
+The library provides these structured error types:
+
+- **`RelayError`**: Top-level error type for all library operations
+- **`ConfigError`**: Configuration validation errors
+- **`ValidationError`**: Transaction validation errors  
+- **`BitcoinRpcError`**: Bitcoin RPC communication errors
+- **`NostrError`**: Nostr protocol errors
+- **`NetworkError`**: Network and connection errors
+
+All errors implement `std::error::Error` and provide detailed context for debugging.
 
 ## Testing
 

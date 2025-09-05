@@ -27,7 +27,7 @@ pub fn network_config(network: Network, relay_id: u16) -> RelayConfig {
         format!("ws://127.0.0.1:{}", strfry_port),
         relay_id.to_string(),
         SocketAddr::from(([127, 0, 0, 1], websocket_port)),
-    )
+    ).expect("Hardcoded network configuration should always be valid")
 }
 
 #[cfg(test)]

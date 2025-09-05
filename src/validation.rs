@@ -1,32 +1,11 @@
-use anyhow::Result;
+use crate::error::ValidationError;
 use serde_json::{json, Value};
-use thiserror::Error;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use bitcoin::consensus::deserialize;
 use bitcoin::Transaction;
-
-#[derive(Error, Debug)]
-pub enum ValidationError {
-    #[error("Empty transaction")]
-    EmptyTransaction,
-    #[error("Invalid hex format")]
-    InvalidHex,
-    #[error("Invalid transaction size: {0} bytes")]
-    InvalidSize(usize),
-    #[error("Invalid transaction structure")]
-    InvalidStructure,
-    #[error("Transaction {0} recently processed (cached)")]
-    RecentlyProcessed(String),
-    #[error("Bitcoin Core rejection: {0}")]
-    BitcoinCoreRejection(String),
-    #[error("RPC error: {0}")]
-    RpcError(#[from] reqwest::Error),
-    #[error("JSON parsing error: {0}")]
-    JsonError(#[from] serde_json::Error),
-}
 
 #[derive(Debug, Clone)]
 pub struct ValidationConfig {
@@ -85,7 +64,7 @@ impl TransactionValidator {
         
         // Check cache for recent processing
         if self.is_recently_processed(&txid) {
-            return Err(ValidationError::RecentlyProcessed(txid));
+            return Err(ValidationError::recently_processed(txid));
         }
         
         // Phase 2: Quick pre-checks
@@ -94,7 +73,10 @@ impl TransactionValidator {
         }
         
         // Phase 1: Use Bitcoin Core validation
-        self.validate_with_bitcoin_core(tx_hex).await?;
+        self.validate_with_bitcoin_core(tx_hex).await.map_err(|e| match e {
+            ValidationError::BitcoinCoreRejection { reason } => ValidationError::bitcoin_core_rejection(reason),
+            other => other,
+        })?;
         
         // Cache successful validation
         self.cache_transaction(&txid);
@@ -112,7 +94,7 @@ impl TransactionValidator {
         
         let byte_len = tx_hex.len() / 2;
         if byte_len < 60 || byte_len > 400_000 {
-            return Err(ValidationError::InvalidSize(byte_len));
+            return Err(ValidationError::invalid_size(byte_len));
         }
         
         Ok(())
@@ -139,17 +121,17 @@ impl TransactionValidator {
         // Check for RPC error
         if let Some(error) = response.get("error") {
             if !error.is_null() {
-                return Err(ValidationError::BitcoinCoreRejection(format!("RPC error: {}", error)));
+                return Err(ValidationError::bitcoin_core_rejection(format!("RPC error: {}", error)));
             }
         }
         
         // Get the result array (testmempoolaccept returns array of results)
         let results = response["result"]
             .as_array()
-            .ok_or_else(|| ValidationError::BitcoinCoreRejection("Invalid response format".to_string()))?;
+            .ok_or_else(|| ValidationError::bitcoin_core_rejection("Invalid response format"))?;
         
         if results.is_empty() {
-            return Err(ValidationError::BitcoinCoreRejection("Empty response".to_string()));
+            return Err(ValidationError::bitcoin_core_rejection("Empty response"));
         }
         
         let result = &results[0];
@@ -160,7 +142,7 @@ impl TransactionValidator {
             let reason = result["reject-reason"]
                 .as_str()
                 .unwrap_or("unknown reason");
-            Err(ValidationError::BitcoinCoreRejection(reason.to_string()))
+            Err(ValidationError::bitcoin_core_rejection(reason))
         }
     }
     
@@ -226,7 +208,7 @@ mod tests {
         // The error should be InvalidStructure (from TXID extraction) 
         // not InvalidSize (from precheck)
         if let Err(e) = result {
-            assert!(!matches!(e, ValidationError::InvalidSize(_)));
+            assert!(!matches!(e, ValidationError::InvalidSize { size: _ }));
         }
     }
 
@@ -261,12 +243,12 @@ mod tests {
         // Too small (less than 60 bytes = 120 hex chars)
         let small_tx = "a".repeat(118); // 59 bytes
         let result = validator.quick_validation_checks(&small_tx);
-        assert!(matches!(result, Err(ValidationError::InvalidSize(59))));
+        assert!(matches!(result, Err(ValidationError::InvalidSize { size: 59 })));
         
         // Too large (more than 400KB = 800,000 hex chars)
         let large_tx = "a".repeat(800_002); // 400,001 bytes
         let result = validator.quick_validation_checks(&large_tx);
-        assert!(matches!(result, Err(ValidationError::InvalidSize(400_001))));
+        assert!(matches!(result, Err(ValidationError::InvalidSize { size: 400_001 })));
     }
 
     #[test]
@@ -299,10 +281,10 @@ mod tests {
         let errors = vec![
             ValidationError::EmptyTransaction,
             ValidationError::InvalidHex,
-            ValidationError::InvalidSize(100),
+            ValidationError::InvalidSize { size: 100 },
             ValidationError::InvalidStructure,
-            ValidationError::RecentlyProcessed("test_txid".to_string()),
-            ValidationError::BitcoinCoreRejection("test reason".to_string()),
+            ValidationError::recently_processed("test_txid"),
+            ValidationError::bitcoin_core_rejection("test reason"),
         ];
         
         for error in errors {
@@ -365,7 +347,7 @@ mod tests {
         // For now, this test is ignored and would need a real transaction hex
         let valid_tx_hex = "0200000001..."; // Replace with real transaction
         
-        let result = validator.validate_with_bitcoin_core(valid_tx_hex).await;
+        let _result = validator.validate_with_bitcoin_core(valid_tx_hex).await;
         // This test requires actual Bitcoin Core running and a valid transaction
         // assert!(result.is_ok());
     }
@@ -382,7 +364,7 @@ mod tests {
         let result = validator.validate_with_bitcoin_core(&invalid_tx_hex).await;
         assert!(result.is_err());
         
-        if let Err(ValidationError::BitcoinCoreRejection(reason)) = result {
+        if let Err(ValidationError::BitcoinCoreRejection { reason }) = result {
             assert!(!reason.is_empty());
         } else {
             panic!("Expected BitcoinCoreRejection error");
@@ -406,11 +388,11 @@ mod tests {
         assert!(validator.is_recently_processed(txid));
         
         // Should return RecentlyProcessed error
-        let result = validator.quick_validation_checks("deadbeef"); // Valid hex to pass initial checks
+        let _result = validator.quick_validation_checks("deadbeef"); // Valid hex to pass initial checks
         // Then manually check cache (since quick_validation_checks doesn't check cache)
         if validator.is_recently_processed("deadbeef") {
-            let cache_result: Result<(), ValidationError> = Err(ValidationError::RecentlyProcessed("deadbeef".to_string()));
-            assert!(matches!(cache_result, Err(ValidationError::RecentlyProcessed(_))));
+            let cache_result: Result<(), ValidationError> = Err(ValidationError::recently_processed("deadbeef"));
+            assert!(matches!(cache_result, Err(ValidationError::RecentlyProcessed { .. })));
         }
     }
 }

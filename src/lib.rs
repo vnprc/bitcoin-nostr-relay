@@ -3,15 +3,18 @@ pub mod validation;
 pub mod nostr;
 pub mod relay;
 pub mod networks;
+pub mod error;
 
 // Re-export core types for easy access
 pub use bitcoin_rpc::BitcoinRpcClient;
-pub use validation::{TransactionValidator, ValidationConfig, ValidationError};
+pub use validation::{TransactionValidator, ValidationConfig};
 pub use nostr::NostrClient;
 pub use relay::{RelayServer, RelayConfig};
 pub use networks::{Network, network_config};
+pub use error::{RelayError, ConfigError, BitcoinRpcError, NostrError, ValidationError, NetworkError};
 
-use anyhow::Result;
+/// Library result type using our custom error
+pub type Result<T, E = RelayError> = std::result::Result<T, E>;
 
 /// High-level API for Bitcoin-over-Nostr relay functionality
 pub struct BitcoinNostrRelay {
@@ -71,9 +74,9 @@ impl BitcoinNostrRelay {
     /// Broadcast a transaction to the Nostr network
     pub async fn broadcast_transaction(&self, tx_hex: &str, block_hash: &str) -> Result<()> {
         if let Some(nostr_client) = &self.nostr_client {
-            nostr_client.send_tx_event(tx_hex, block_hash).await
+            nostr_client.send_tx_event(tx_hex, block_hash).await.map_err(RelayError::from)
         } else {
-            Err(anyhow::anyhow!("Nostr client not connected"))
+            Err(NostrError::Disconnected.into())
         }
     }
     
@@ -123,7 +126,7 @@ mod tests {
             "ws://127.0.0.1:8000".to_string(),
             "3".to_string(),
             "127.0.0.1:7781".parse().unwrap(),
-        );
+        ).unwrap();
         let custom_relay = BitcoinNostrRelay::new(custom_config);
         assert!(custom_relay.is_ok());
     }
@@ -209,13 +212,13 @@ mod tests {
         
         // Could be InvalidSize (from precheck) or InvalidStructure (from TXID extraction)
         match result {
-            Err(ValidationError::InvalidSize(59)) => {
+            Err(ValidationError::InvalidSize { size: 59 }) => {
                 // Expected error type from precheck
             }
             Err(ValidationError::InvalidStructure) => {
                 // Also acceptable as TXID extraction fails first
             }
-            _ => panic!("Expected InvalidSize(59) or InvalidStructure error, got: {:?}", result)
+            _ => panic!("Expected InvalidSize{{size: 59}} or InvalidStructure error, got: {:?}", result)
         }
     }
     
@@ -227,7 +230,7 @@ mod tests {
         // Should fail to broadcast without Nostr client
         let result = relay.broadcast_transaction("deadbeef", "block_hash").await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Nostr client not connected"));
+        assert!(result.unwrap_err().to_string().contains("Nostr relay disconnected"));
     }
     
     #[test]
