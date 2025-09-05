@@ -63,7 +63,7 @@ impl RelayServer {
     
     /// Start the relay server on the given address
     pub async fn run(self) -> Result<()> {
-        let addr: SocketAddr = format!("127.0.0.1:{}", 7779 + self.config.relay_id - 1).parse()?;
+        let addr = self.config.websocket_listen_addr;
         let listener = TcpListener::bind(addr).await?;
         info!("Relay-{} Bitcoin Transaction Relay Server listening on {}", self.config.relay_id, addr);
         
@@ -244,7 +244,7 @@ impl RelayServer {
         let client = reqwest::Client::new();
         let response = client
             .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_username, Some(&self.config.bitcoin_rpc_password))
+            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
             .json(&request)
             .send()
             .await?
@@ -341,7 +341,7 @@ impl RelayServer {
                 }
             }
             
-            tokio::time::sleep(tokio::time::Duration::from_secs(self.config.mempool_poll_interval_secs)).await;
+            tokio::time::sleep(self.config.mempool_poll_interval).await;
         }
     }
     
@@ -357,7 +357,7 @@ impl RelayServer {
         let client = reqwest::Client::new();
         let response = client
             .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_username, Some(&self.config.bitcoin_rpc_password))
+            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
             .json(&request)
             .send()
             .await?
@@ -392,7 +392,7 @@ impl RelayServer {
         let client = reqwest::Client::new();
         let response = client
             .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_username, Some(&self.config.bitcoin_rpc_password))
+            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
             .json(&request)
             .send()
             .await?
@@ -427,7 +427,7 @@ impl RelayServer {
                 Tag::Hashtag("transaction".to_string()),
                 Tag::Generic(
                     nostr::TagKind::Custom("relay_id".to_string()),
-                    vec![self.config.relay_id.to_string()],
+                    vec![self.config.relay_id.clone()],
                 ),
             ]
         ).to_event(&self.keys)?;
@@ -455,7 +455,7 @@ impl RelayServer {
     
     /// Connect to the Strfry Nostr relay
     async fn connect_to_strfry(&self) -> Result<()> {
-        info!("Relay-{}: Connecting to strfry relay at ws://127.0.0.1:{}", self.config.relay_id, self.config.strfry_port);
+        info!("Relay-{}: Connecting to strfry relay at {}", self.config.relay_id, self.config.strfry_url);
         
         loop {
             match self.try_connect_to_strfry().await {
@@ -472,7 +472,7 @@ impl RelayServer {
     
     /// Attempt to connect to Strfry (with retry logic)
     async fn try_connect_to_strfry(&self) -> Result<()> {
-        let url = Url::parse(&format!("ws://127.0.0.1:{}", self.config.strfry_port))?;
+        let url = Url::parse(&self.config.strfry_url)?;
         let (ws_stream, _) = connect_async(url).await?;
         info!("Relay-{}: Connected to strfry relay", self.config.relay_id);
         
@@ -561,10 +561,8 @@ impl RelayServer {
         for tag in &event.tags {
             if let nostr::Tag::Generic(kind, values) = tag {
                 if *kind == nostr::TagKind::Custom("relay_id".to_string()) && !values.is_empty() {
-                    if let Ok(sender_relay_id) = values[0].parse::<u16>() {
-                        if sender_relay_id == self.config.relay_id {
-                            return Ok(());
-                        }
+                    if values[0] == self.config.relay_id {
+                        return Ok(());
                     }
                 }
             }

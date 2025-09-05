@@ -2,12 +2,14 @@ pub mod bitcoin_rpc;
 pub mod validation;
 pub mod nostr;
 pub mod relay;
+pub mod networks;
 
 // Re-export core types for easy access
 pub use bitcoin_rpc::BitcoinRpcClient;
 pub use validation::{TransactionValidator, ValidationConfig, ValidationError};
 pub use nostr::NostrClient;
 pub use relay::{RelayServer, RelayConfig};
+pub use networks::{Network, network_config};
 
 use anyhow::Result;
 
@@ -24,13 +26,20 @@ impl BitcoinNostrRelay {
     pub fn new(config: RelayConfig) -> Result<Self> {
         let bitcoin_client = BitcoinRpcClient::new(
             config.bitcoin_rpc_url.clone(),
-            config.bitcoin_rpc_username.clone(),
-            config.bitcoin_rpc_password.clone(),
+            config.bitcoin_rpc_auth.username.clone(),
+            config.bitcoin_rpc_auth.password.clone(),
         );
+        
+        // Extract port from Bitcoin RPC URL for validator
+        let bitcoin_port = if let Ok(url) = url::Url::parse(&config.bitcoin_rpc_url) {
+            url.port().unwrap_or(18332)
+        } else {
+            18332
+        };
         
         let validator = TransactionValidator::new(
             config.validation_config.clone(),
-            config.bitcoin_rpc_port,
+            bitcoin_port,
         );
         
         Ok(Self {
@@ -86,7 +95,7 @@ mod tests {
     
     #[test]
     fn test_bitcoin_nostr_relay_creation() {
-        let config = RelayConfig::regtest(1);
+        let config = RelayConfig::for_network(Network::Regtest, 1);
         let relay = BitcoinNostrRelay::new(config);
         
         assert!(relay.is_ok());
@@ -99,17 +108,22 @@ mod tests {
     #[test]
     fn test_bitcoin_nostr_relay_with_different_configs() {
         // Test regtest config
-        let regtest_config = RelayConfig::regtest(1);
+        let regtest_config = RelayConfig::for_network(Network::Regtest, 1);
         let regtest_relay = BitcoinNostrRelay::new(regtest_config);
         assert!(regtest_relay.is_ok());
         
         // Test testnet4 config
-        let testnet_config = RelayConfig::testnet4(2);
+        let testnet_config = RelayConfig::for_network(Network::Testnet4, 2);
         let testnet_relay = BitcoinNostrRelay::new(testnet_config);
         assert!(testnet_relay.is_ok());
         
         // Test custom config
-        let custom_config = RelayConfig::new(19000, 3, 8000);
+        let custom_config = RelayConfig::new(
+            "http://127.0.0.1:19000".to_string(),
+            "ws://127.0.0.1:8000".to_string(),
+            "3".to_string(),
+            "127.0.0.1:7781".parse().unwrap(),
+        );
         let custom_relay = BitcoinNostrRelay::new(custom_config);
         assert!(custom_relay.is_ok());
     }
@@ -120,8 +134,8 @@ mod tests {
         validation_config.enable_validation = false;
         validation_config.cache_size = 500;
         
-        let config = RelayConfig::regtest(1)
-            .with_validation_config(validation_config.clone());
+        let config = RelayConfig::for_network(Network::Regtest, 1)
+            .with_validation(validation_config.clone());
             
         let relay = BitcoinNostrRelay::new(config);
         assert!(relay.is_ok());
@@ -136,8 +150,8 @@ mod tests {
         let mut validation_config = ValidationConfig::default();
         validation_config.enable_validation = false;
         
-        let config = RelayConfig::regtest(1)
-            .with_validation_config(validation_config);
+        let config = RelayConfig::for_network(Network::Regtest, 1)
+            .with_validation(validation_config);
             
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
@@ -148,7 +162,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_validate_transaction_with_empty_input() {
-        let config = RelayConfig::regtest(1);
+        let config = RelayConfig::for_network(Network::Regtest, 1);
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
         // Should fail validation with empty transaction
@@ -169,7 +183,7 @@ mod tests {
     
     #[tokio::test] 
     async fn test_validate_transaction_with_invalid_hex() {
-        let config = RelayConfig::regtest(1);
+        let config = RelayConfig::for_network(Network::Regtest, 1);
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
         // Should fail validation with invalid hex
@@ -185,7 +199,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_validate_transaction_with_invalid_size() {
-        let config = RelayConfig::regtest(1);
+        let config = RelayConfig::for_network(Network::Regtest, 1);
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
         // Should fail validation with transaction too small (less than 60 bytes)
@@ -207,7 +221,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_broadcast_transaction_without_nostr_client() {
-        let config = RelayConfig::regtest(1);
+        let config = RelayConfig::for_network(Network::Regtest, 1);
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
         // Should fail to broadcast without Nostr client
@@ -218,16 +232,16 @@ mod tests {
     
     #[test]
     fn test_bitcoin_nostr_relay_config_integration() {
-        let config = RelayConfig::regtest(1)
-            .with_bitcoin_auth("custom_user".to_string(), "custom_pass".to_string())
-            .with_mempool_poll_interval(5);
+        let config = RelayConfig::for_network(Network::Regtest, 1)
+            .with_auth("custom_user".to_string(), "custom_pass".to_string())
+            .with_mempool_poll_interval_secs(5);
             
         let relay = BitcoinNostrRelay::new(config).unwrap();
         
         // Config should be properly integrated
-        assert_eq!(relay.config.bitcoin_rpc_username, "custom_user");
-        assert_eq!(relay.config.bitcoin_rpc_password, "custom_pass");
-        assert_eq!(relay.config.mempool_poll_interval_secs, 5);
+        assert_eq!(relay.config.bitcoin_rpc_auth.username, "custom_user");
+        assert_eq!(relay.config.bitcoin_rpc_auth.password, "custom_pass");
+        assert_eq!(relay.config.mempool_poll_interval.as_secs(), 5);
     }
     
     // Integration test that would require a real WebSocket connection

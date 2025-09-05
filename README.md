@@ -3,17 +3,21 @@
 [![Crates.io](https://img.shields.io/crates/v/bitcoin-nostr-relay.svg)](https://crates.io/crates/bitcoin-nostr-relay)
 [![Documentation](https://docs.rs/bitcoin-nostr-relay/badge.svg)](https://docs.rs/bitcoin-nostr-relay)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Tests](https://img.shields.io/badge/tests-52%20passing-brightgreen.svg)](#testing)
 
 A Rust library for relaying Bitcoin transactions over the Nostr protocol, enabling censorship-resistant transaction propagation networks.
 
+> **🚀 Modern Architecture**: Deployment-agnostic configuration following mature Rust patterns. Connect to any Bitcoin RPC and Nostr relay URLs with no hardcoded assumptions.
+
 ## Features
 
-- **Bitcoin RPC Integration**: Connect to Bitcoin Core nodes for transaction monitoring and submission
-- **Nostr Protocol Support**: Broadcast and receive Bitcoin transactions via Nostr relays
-- **Transaction Validation**: Configurable validation with caching and anti-spam protection
-- **Multi-Chain Support**: Built-in configurations for regtest and testnet4
-- **High-Level API**: Simple interface for creating Bitcoin-over-Nostr relay networks
-- **Comprehensive Testing**: Full unit and integration test coverage
+- **🔗 Bitcoin RPC Integration**: Connect to any Bitcoin Core node via URL
+- **📡 Nostr Protocol Support**: Connect to any Nostr relay via WebSocket URL  
+- **✅ Transaction Validation**: Configurable validation with caching and anti-spam protection
+- **🌐 Deployment Agnostic**: No hardcoded ports - works with any network configuration
+- **🎯 Mature Rust Patterns**: Builder patterns following tokio/reqwest conventions
+- **🔧 Flexible Configuration**: Multiple API styles (method-based, functional, explicit)
+- **📋 Comprehensive Testing**: 52 tests covering all functionality with integration scenarios
 
 ## Quick Start
 
@@ -21,7 +25,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bitcoin-nostr-relay = "0.1"
+bitcoin-nostr-relay = "0.1"  # Use latest version for new configuration API
 tokio = { version = "1.0", features = ["full"] }
 ```
 
@@ -29,13 +33,22 @@ tokio = { version = "1.0", features = ["full"] }
 
 ```rust
 use bitcoin_nostr_relay::*;
+use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a regtest configuration
-    let config = RelayConfig::regtest(1)
-        .with_bitcoin_auth("user".to_string(), "password".to_string())
-        .with_mempool_poll_interval(5);
+    // Method-based convenience (recommended for common patterns)
+    let config = RelayConfig::for_network(Network::Regtest, 1)
+        .with_auth("user".to_string(), "password".to_string())
+        .with_mempool_poll_interval_secs(5);
+    
+    // Explicit configuration (recommended for custom deployments)
+    let config = RelayConfig::new(
+        "http://127.0.0.1:18332".to_string(),    // Bitcoin RPC URL
+        "ws://127.0.0.1:7777".to_string(),       // Nostr relay URL  
+        "my-relay".to_string(),                  // Relay ID
+        "127.0.0.1:7779".parse::<SocketAddr>()?, // WebSocket listen address
+    ).with_auth("user".to_string(), "password".to_string());
     
     // Create the relay instance
     let mut relay = BitcoinNostrRelay::new(config)?;
@@ -55,29 +68,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### Configuration
 
-The library supports different Bitcoin networks and custom configurations:
+The library provides multiple configuration approaches following mature Rust patterns:
 
 ```rust
 use bitcoin_nostr_relay::*;
+use std::net::SocketAddr;
 
-// Regtest configuration (default ports: Bitcoin 18332, Strfry 7777)
-let regtest_config = RelayConfig::regtest(1);
+// Method-based convenience (like tokio::Runtime::Builder)
+let config = RelayConfig::for_network(Network::Regtest, 1)
+    .with_auth("user".to_string(), "pass".to_string())
+    .with_mempool_poll_interval_secs(5);
 
-// Testnet4 configuration (default ports: Bitcoin 48330, Strfry 7777)
-let testnet_config = RelayConfig::testnet4(1);
+// Functional convenience (alternative style)
+let config = network_config(Network::Testnet4, 1)
+    .with_auth("user".to_string(), "pass".to_string());
 
-// Custom configuration
-let custom_config = RelayConfig::new(20000, 1, 8000)
-    .with_bitcoin_auth("custom_user".to_string(), "custom_password".to_string())
-    .with_mempool_poll_interval(10);
+// Explicit configuration (full control)
+let config = RelayConfig::new(
+    "http://your-bitcoin-node:8332".to_string(),
+    "wss://your-nostr-relay.com".to_string(), 
+    "production-relay-1".to_string(),
+    "0.0.0.0:9001".parse::<SocketAddr>().unwrap(),
+).with_auth("bitcoin_user".to_string(), "secure_password".to_string());
 
 // Custom validation settings
 let mut validation_config = ValidationConfig::default();
 validation_config.enable_validation = false; // Disable validation
 validation_config.cache_size = 2000; // Larger cache
 
-let config = RelayConfig::regtest(1)
-    .with_validation_config(validation_config);
+let config = RelayConfig::for_network(Network::Regtest, 1)
+    .with_validation(validation_config);
 ```
 
 ## API Reference
@@ -110,32 +130,61 @@ impl BitcoinNostrRelay {
 
 ```rust
 impl RelayConfig {
-    pub fn new(bitcoin_rpc_port: u16, relay_id: u16, strfry_port: u16) -> Self;
-    pub fn regtest(relay_id: u16) -> Self;
-    pub fn testnet4(relay_id: u16) -> Self;
-    pub fn with_bitcoin_auth(self, username: String, password: String) -> Self;
-    pub fn with_validation_config(self, config: ValidationConfig) -> Self;
-    pub fn with_mempool_poll_interval(self, seconds: u64) -> Self;
+    // Primary constructor (deployment-agnostic)
+    pub fn new(
+        bitcoin_rpc_url: String,
+        strfry_url: String, 
+        relay_id: String,
+        websocket_listen_addr: SocketAddr,
+    ) -> Self;
+    
+    // Convenience constructors following mature Rust patterns
+    pub fn for_network(network: Network, relay_id: u16) -> Self;
+    
+    // Builder methods
+    pub fn with_auth(self, username: String, password: String) -> Self;
+    pub fn with_validation(self, config: ValidationConfig) -> Self;
+    pub fn with_mempool_poll_interval(self, interval: Duration) -> Self;
+    pub fn with_mempool_poll_interval_secs(self, seconds: u64) -> Self;
+}
+
+// Standalone convenience function
+pub fn network_config(network: Network, relay_id: u16) -> RelayConfig;
+
+pub enum Network {
+    Regtest,
+    Testnet4,
 }
 ```
 
 ## Architecture
 
-The library implements a Bitcoin-over-Nostr relay network where:
+The library implements a **deployment-agnostic** Bitcoin-over-Nostr relay network:
 
-1. **Bitcoin nodes** provide transaction data via RPC
-2. **Relay servers** monitor mempools and broadcast transactions
-3. **Nostr relays** facilitate peer-to-peer transaction sharing
+### Network Flow
+1. **Bitcoin nodes** provide transaction data via RPC (any URL)
+2. **Relay servers** monitor mempools and broadcast transactions  
+3. **Nostr relays** facilitate peer-to-peer transaction sharing (any WebSocket URL)
 4. **Validation layer** prevents spam and validates transactions
-5. **High-level API** simplifies integration
+5. **High-level API** simplifies integration with flexible configuration
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────┐
 │ Bitcoin     │◄──►│ tx-relay     │◄──►│ Nostr       │
 │ Node        │    │ Library      │    │ Relay       │
-│ (RPC)       │    │              │    │ (WebSocket) │
+│ (Any URL)   │    │              │    │ (Any WSS)   │
 └─────────────┘    └──────────────┘    └─────────────┘
 ```
+
+### Key Architectural Benefits
+
+✅ **Deployment Agnostic**: No hardcoded ports or network assumptions  
+✅ **URL-Based Configuration**: Connect to any Bitcoin RPC and Nostr relay  
+✅ **Flexible Relay IDs**: String-based IDs support any naming scheme  
+✅ **Multiple API Styles**: Method-based, functional, and explicit patterns  
+✅ **Mature Rust Patterns**: Follows conventions from tokio, reqwest, clap  
+✅ **Clean API**: Simple, focused API without legacy complexity  
+✅ **Comprehensive Testing**: 52 tests covering all configuration scenarios
 
 ## Error Handling
 
@@ -160,27 +209,43 @@ match relay.validate_transaction(tx_hex).await {
 Run the test suite:
 
 ```bash
-# Unit tests
+# All tests (recommended)
+cargo test
+
+# Unit tests only
 cargo test --lib
 
-# Integration tests
+# Integration tests only
 cargo test --test integration_tests
 
-# All tests including ignored integration tests
+# Include integration tests requiring external services
 cargo test -- --include-ignored
 ```
 
 The library includes:
-- **47 unit tests** covering all core functionality
-- **7 integration tests** for end-to-end scenarios
+- **🧪 52 total tests** with comprehensive coverage
+- **45 unit tests** covering all core functionality and configuration patterns
+- **7 integration tests** for end-to-end scenarios 
 - **Ignored tests** for scenarios requiring external services (Bitcoin Core, Nostr relays)
+- **Configuration tests** verifying all configuration patterns
 
 ## Examples
 
+### Quick Start Examples
+
+Run the configuration example to see all patterns:
+
+```bash
+cargo run --example configuration_example
+```
+
+### Complete Integration Examples
+
 See the [playground repository](https://github.com/vnprc/tx-relay-playground) for complete examples including:
 - Multi-relay setup with nix
-- Bitcoin regtest and testnet4 configurations
+- Bitcoin regtest and testnet4 configurations  
 - End-to-end transaction relay demonstrations
+- Production deployment patterns
 
 ## License
 
