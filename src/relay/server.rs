@@ -101,6 +101,7 @@ impl RelayServer {
         let client_id = peer_addr.to_string();
         
         let (tx_sender, mut tx_receiver) = broadcast::channel(self.config.websocket_buffer_size);
+        let mut global_receiver = self.tx_broadcaster.subscribe();
         self.clients.write().await.insert(client_id.clone(), tx_sender);
         
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
@@ -108,11 +109,32 @@ impl RelayServer {
         
         // Handle outgoing messages to client
         let broadcast_task = tokio::spawn(async move {
-            while let Ok(event) = tx_receiver.recv().await {
-                let message = json!(["EVENT", "sub_id", event]).to_string();
-                if let Err(e) = ws_sender.send(Message::Text(message)).await {
-                    error!("Failed to send message to client: {}", e);
-                    break;
+            loop {
+                tokio::select! {
+                    event = tx_receiver.recv() => {
+                        match event {
+                            Ok(event) => {
+                                let message = json!(["EVENT", "sub_id", event]).to_string();
+                                if let Err(e) = ws_sender.send(Message::Text(message)).await {
+                                    error!("Failed to send message to client: {}", e);
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                    event = global_receiver.recv() => {
+                        match event {
+                            Ok(event) => {
+                                let message = json!(["EVENT", "sub_id", event]).to_string();
+                                if let Err(e) = ws_sender.send(Message::Text(message)).await {
+                                    error!("Failed to send message to client: {}", e);
+                                    break;
+                                }
+                            }
+                            Err(_) => break,
+                        }
+                    }
                 }
             }
         });
@@ -233,35 +255,7 @@ impl RelayServer {
     
     /// Submit a transaction to the Bitcoin node
     async fn submit_to_bitcoin_node(&self, tx_hex: &str) -> Result<String> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "sendrawtransaction",
-            "params": [tx_hex]
-        });
-        
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
-            .json(&request)
-            .send()
-            .await?
-            .json::<Value>()
-            .await?;
-        
-        if let Some(error) = response.get("error") {
-            if !error.is_null() {
-                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
-            }
-        }
-        
-        let txid = response["result"]
-            .as_str()
-            .ok_or_else(|| crate::BitcoinRpcError::InvalidResponse)?
-            .to_string();
-        
-        Ok(txid)
+        self.bitcoin_client.send_raw_transaction(tx_hex).await
     }
     
     /// Send a transaction response back to the client
@@ -346,65 +340,12 @@ impl RelayServer {
     
     /// Get the list of transaction IDs from the mempool
     async fn get_mempool_txids(&self) -> Result<Vec<String>> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getrawmempool",
-            "params": []
-        });
-        
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
-            .json(&request)
-            .send()
-            .await?
-            .json::<Value>()
-            .await?;
-        
-        if let Some(error) = response.get("error") {
-            if !error.is_null() {
-                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
-            }
-        }
-        
-        let txids: Vec<String> = response["result"]
-            .as_array()
-            .unwrap_or(&vec![])
-            .iter()
-            .map(|v| v.as_str().unwrap_or("").to_string())
-            .collect();
-            
-        Ok(txids)
+        self.bitcoin_client.get_raw_mempool().await
     }
     
     /// Get the raw transaction hex for a given transaction ID
     async fn get_raw_transaction(&self, txid: &str) -> Result<String> {
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getrawtransaction",
-            "params": [txid]
-        });
-        
-        let client = reqwest::Client::new();
-        let response = client
-            .post(&self.config.bitcoin_rpc_url)
-            .basic_auth(&self.config.bitcoin_rpc_auth.username, Some(&self.config.bitcoin_rpc_auth.password))
-            .json(&request)
-            .send()
-            .await?
-            .json::<Value>()
-            .await?;
-        
-        if let Some(error) = response.get("error") {
-            if !error.is_null() {
-                return Err(crate::BitcoinRpcError::request_failed(format!("Bitcoin RPC error: {}", error)).into());
-            }
-        }
-        
-        Ok(response["result"].as_str().unwrap_or("").to_string())
+        self.bitcoin_client.get_raw_transaction(txid).await
     }
     
     /// Broadcast a transaction to the Nostr network
@@ -436,10 +377,7 @@ impl RelayServer {
             Err(e) => error!("Relay-{}: Failed to broadcast transaction {} to strfry: {}", self.config.relay_id, txid, e),
         }
         
-        let clients = self.clients.read().await;
-        for sender in clients.values() {
-            let _ = sender.send(event.clone());
-        }
+        let _ = self.tx_broadcaster.send(event.clone());
         
         Ok(())
     }

@@ -72,6 +72,35 @@ impl BitcoinRpcClient {
         bitcoin::consensus::deserialize(&block_bytes)
             .map_err(|e| BitcoinRpcError::request_failed(format!("Failed to deserialize block: {}", e)).into())
     }
+
+    pub async fn send_raw_transaction(&self, tx_hex: &str) -> Result<String> {
+        let result = self.rpc_call("sendrawtransaction", &json!([tx_hex])).await?;
+        result
+            .as_str()
+            .ok_or_else(|| BitcoinRpcError::InvalidResponse)
+            .map(|s| s.to_string())
+            .map_err(|e| e.into())
+    }
+
+    pub async fn get_raw_mempool(&self) -> Result<Vec<String>> {
+        let result = self.rpc_call("getrawmempool", &json!([])).await?;
+        let txids: Vec<String> = result
+            .as_array()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|v| v.as_str().unwrap_or("").to_string())
+            .collect();
+        Ok(txids)
+    }
+
+    pub async fn get_raw_transaction(&self, txid: &str) -> Result<String> {
+        let result = self.rpc_call("getrawtransaction", &json!([txid])).await?;
+        result
+            .as_str()
+            .ok_or_else(|| BitcoinRpcError::InvalidResponse)
+            .map(|s| s.to_string())
+            .map_err(|e| e.into())
+    }
 }
 
 #[cfg(test)]
