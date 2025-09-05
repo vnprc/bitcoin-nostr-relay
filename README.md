@@ -1,7 +1,7 @@
-# tx-relay
+# bitcoin-nostr-relay
 
-[![Crates.io](https://img.shields.io/crates/v/tx-relay.svg)](https://crates.io/crates/tx-relay)
-[![Documentation](https://docs.rs/tx-relay/badge.svg)](https://docs.rs/tx-relay)
+[![Crates.io](https://img.shields.io/crates/v/bitcoin-nostr-relay.svg)](https://crates.io/crates/bitcoin-nostr-relay)
+[![Documentation](https://docs.rs/bitcoin-nostr-relay/badge.svg)](https://docs.rs/bitcoin-nostr-relay)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Rust library for relaying Bitcoin transactions over the Nostr protocol, enabling censorship-resistant transaction propagation networks.
@@ -21,14 +21,14 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-tx-relay = "0.1"
+bitcoin-nostr-relay = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 ```
 
 ### Basic Usage
 
 ```rust
-use tx_relay::*;
+use bitcoin_nostr_relay::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 The library supports different Bitcoin networks and custom configurations:
 
 ```rust
-use tx_relay::*;
+use bitcoin_nostr_relay::*;
 
 // Regtest configuration (default ports: Bitcoin 18332, Strfry 7777)
 let regtest_config = RelayConfig::regtest(1);
@@ -142,7 +142,7 @@ The library implements a Bitcoin-over-Nostr relay network where:
 The library provides comprehensive error types:
 
 ```rust
-use tx_relay::ValidationError;
+use bitcoin_nostr_relay::ValidationError;
 
 match relay.validate_transaction(tx_hex).await {
     Ok(()) => println!("Transaction valid"),

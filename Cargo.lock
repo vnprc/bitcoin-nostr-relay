@@ -99,6 +99,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitcoin-nostr-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "futures-util",
+ "hex",
+ "lru",
+ "nostr",
+ "reqwest",
+ "secp256k1 0.28.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "tungstenite",
+ "url",
+]
+
+[[package]]
 name = "bitcoin-private"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1701,30 +1725,6 @@ dependencies = [
  "thiserror",
  "url",
  "utf-8",
-]
-
-[[package]]
-name = "tx-relay"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitcoin",
- "futures-util",
- "hex",
- "lru",
- "nostr",
- "reqwest",
- "secp256k1 0.28.2",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "tungstenite",
- "url",
 ]
 
 [[package]]

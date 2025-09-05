@@ -1,5 +1,5 @@
 [package]
-name = "tx-relay"
+name = "bitcoin-nostr-relay"
 version = "0.1.0"
 edition = "2021"
 description = "A library for relaying Bitcoin transactions over the Nostr protocol"

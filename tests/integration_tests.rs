@@ -1,4 +1,4 @@
-use tx_relay::*;
+use bitcoin_nostr_relay::*;
 
 #[test]
 fn test_library_integration_basic() {
